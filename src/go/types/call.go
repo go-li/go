@@ -654,23 +654,6 @@ func (check *Checker) argument(fun ast.Expr, sig *Signature, i int, x *operand, 
 	return wildcard(x.typ, typ, saw)
 }
 
-type FakeObj struct{}
-
-func (FakeObj) Parent() *Scope                        { return nil }  // scope in which this object is declared; nil for methods and struct fields
-func (FakeObj) Pos() token.Pos                        { return 0 }    // position of object identifier in declaration
-func (FakeObj) Pkg() *Package                         { return nil }  // package to which this object belongs; nil for labels and objects in the Universe scope
-func (FakeObj) Name() string                          { return "" }   // package local object name
-func (FakeObj) Type() Type                            { return nil }  // object type
-func (FakeObj) Exported() bool                        { return true } // reports whether the name starts with a capital letter
-func (FakeObj) Id() string                            { return "" }   // object name if exported, qualified name if not exported (see func Id)
-func (FakeObj) String() string                        { return "" }
-func (FakeObj) order() uint32                         { return 0 }
-func (FakeObj) setOrder(uint32)                       {}
-func (FakeObj) setParent(*Scope)                      {}
-func (FakeObj) sameId(pkg *Package, name string) bool { return false }
-func (FakeObj) scopePos() token.Pos                   { return 0 }
-func (FakeObj) setScopePos(pos token.Pos)             {}
-
 func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 	// these must be declared before the "goto Error" statements
 	var (
@@ -695,22 +678,14 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 			if exp == nil {
 				if !pkg.fake {
 					check.errorf(e.Pos(), "%s not declared by package %s", sel, pkg.name)
-					goto Error
 				}
-			} else {
-				if !exp.Exported() && !pkg.fake {
-					check.errorf(e.Pos(), "%s not exported by package %s", sel, pkg.name)
-					// ok to continue
-				}
-				check.recordUse(e.Sel, exp)
+				goto Error
 			}
-
-			if exp == nil && pkg.fake {
-				x.mode = novalue
-				x.typ = NewNamed(NewTypeName(0, pkg, sel, emptyInterface.Complete()), emptyInterface.Complete(), []*Func{})
-				x.expr = e
-				return
+			if !exp.Exported() {
+				check.errorf(e.Pos(), "%s not exported by package %s", sel, pkg.name)
+				// ok to continue
 			}
+			check.recordUse(e.Sel, exp)
 
 			// Simplified version of the code for *ast.Idents:
 			// - imported objects are always fully initialized
@@ -756,10 +731,9 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 		case indirect:
 			check.invalidOp(e.Pos(), "%s is not in method set of %s", sel, x.typ)
 		default:
-			//			check.invalidOp(e.Pos(), "%s has no field or method %s", x, sel)
+			check.invalidOp(e.Pos(), "%s has no field or method %s", x, sel)
 		}
-		//		goto Error
-		obj = FakeObj{}
+		goto Error
 	}
 
 	if x.mode == typexpr {
@@ -844,7 +818,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 			check.addDeclDep(obj)
 
 		default:
-			//			unreachable()
+			unreachable()
 		}
 	}
 
