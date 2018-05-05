@@ -911,7 +911,7 @@ func (p *printer) expr1(expr ast.Expr, prec1, depth int) {
 		}
 		p.print(blank)
 		p.expr(x.Value)
-
+	case *ast.VoidType:
 	default:
 		panic("unreachable")
 	}
