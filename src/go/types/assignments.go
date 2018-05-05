@@ -25,7 +25,7 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 	case constant_, variable, mapindex, value, commaok:
 		// ok
 	default:
-		//		unreachable()
+		unreachable()
 	}
 
 	if isUntyped(x.typ) {
@@ -56,16 +56,15 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 	if T == nil {
 		return
 	}
-	/*
-		if reason := ""; !x.assignableTo(check.conf, T, &reason) {
-			if reason != "" {
-				check.errorf(x.pos(), "cannot use %s as %s value in %s: %s", x, T, context, reason)
-			} else {
-				check.errorf(x.pos(), "cannot use %s as %s value in %s", x, T, context)
-			}
-			x.mode = invalid
+
+	if reason := ""; !x.assignableTo(check.conf, T, &reason) {
+		if reason != "" {
+			check.errorf(x.pos(), "cannot use %s as %s value in %s: %s", x, T, context, reason)
+		} else {
+			check.errorf(x.pos(), "cannot use %s as %s value in %s", x, T, context)
 		}
-	*/
+		x.mode = invalid
+	}
 }
 
 func (check *Checker) initConst(lhs *Const, x *operand) {
