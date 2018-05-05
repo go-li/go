@@ -11,6 +11,186 @@ import (
 	"go/token"
 )
 
+// Here we silently return arbitrary new type if old type is nil (or untyped nil)
+// otherwise the old and new types shall be identical
+// If not, we raise a wildcard conflict error
+func check_typeconflict(newt, oldt Type, vararg_eface_promotion bool) Type {
+	if newt == nil {
+		return oldt
+	}
+	if oldt == nil {
+		return newt
+	}
+	if isUntyped(newt) {
+		return oldt
+	}
+	if isUntyped(oldt) {
+		return newt
+	}
+	if IdenticalIgnoreTags(newt, oldt) {
+		return oldt
+	}
+
+	if vararg_eface_promotion {
+		switch x := oldt.(type) {
+		case *Interface:
+			if x.NumMethods() == 0 {
+				if AssignableTo(newt, oldt) {
+					return oldt
+				}
+			}
+		}
+	}
+
+	//	spew.Dump(oldt)
+	//	spew.Dump(newt)
+	//	panic("could not substitute wildcard")
+
+	return Typ[Invalid]
+}
+
+func inval(a, b Type) Type {
+	if a == Typ[Invalid] {
+		return a
+	}
+	return b
+}
+
+func substitute(where Type, what Type, saw map[*Named]*Named) Type {
+
+	//	println("Substituting:")
+	//	spew.Dump(where)
+
+	switch x := where.(type) {
+	case *Pointer:
+		ptr := substitute(x.Elem(), what, saw)
+		if ptr == x.Elem() {
+			return x
+		}
+		return inval(ptr, NewPointer(ptr))
+	case *Basic:
+		if x.kind == UntypedVoid {
+			return what
+		}
+		return x
+	case *Signature:
+		para := substitute(x.Params(), what, saw).(*Tuple)
+		resu := substitute(x.Results(), what, saw).(*Tuple)
+		if para == x.Params() && resu == x.Results() {
+			return x
+		}
+		return inval(resu, inval(para, NewSignature(x.Recv(), para, resu, x.Variadic())))
+	case *Tuple:
+		if x == nil {
+			return x
+		}
+		var allsame = true
+		var y = make([]*Var, x.Len())
+		for i := range y {
+
+			typ := x.At(i).Type()
+			subs := substitute(typ, what, saw)
+			if subs == Typ[Invalid] {
+				return subs
+			}
+
+			if typ == subs {
+				y[i] = x.At(i)
+			} else {
+				y[i] = NewVar(x.At(i).Pos(), x.At(i).Pkg(), "", subs)
+				allsame = false
+			}
+		}
+		if allsame {
+			return x
+		} else {
+			return NewTuple(y...)
+		}
+	case *Named:
+
+		if _, ok := saw[x]; !ok {
+			saw[x] = nil
+
+			val := substitute(x.Underlying(), what, saw)
+			if val == Typ[Invalid] {
+				return val
+			}
+
+			if val == x.Underlying() {
+				return x
+			}
+		} else {
+			return saw[x]
+		}
+
+	case *Slice:
+		sub := substitute(x.Elem(), what, saw)
+		if sub == x.Elem() {
+			return x
+		}
+		return inval(sub, NewSlice(sub))
+	case *Array:
+		sub := substitute(x.Elem(), what, saw)
+		if sub == x.Elem() {
+			return x
+		}
+		return inval(sub, NewArray(sub, x.Len()))
+	case *Struct:
+		if x == nil {
+			return x
+		}
+		var allsame = true
+		var y = make([]*Var, x.NumFields())
+		for i := range y {
+
+			typ := x.Field(i).Type()
+			subs := substitute(typ, what, saw)
+			if subs == Typ[Invalid] {
+				return subs
+			}
+
+			if typ == subs {
+				y[i] = x.Field(i)
+			} else {
+				y[i] = NewVar(x.Field(i).Pos(), x.Field(i).Pkg(), "", subs)
+				allsame = false
+			}
+		}
+		if allsame {
+			return x
+		} else {
+			return NewStruct(y, nil)
+		}
+	case *Chan:
+		sub := substitute(x.Elem(), what, saw)
+		if sub == x.Elem() {
+			return x
+		}
+		return inval(sub, NewChan(x.Dir(), sub))
+	case *Map:
+		var a, b Type = nil, nil
+		b = substitute(x.Key(), what, saw)
+		if b == Typ[Invalid] || !Comparable(b) {
+			return Typ[Invalid]
+		}
+		a = substitute(x.Elem(), what, saw)
+		if a == x.Elem() && b == x.Key() {
+			return x
+		}
+		return inval(a, inval(b, NewMap(b, a)))
+	case *Interface:
+		if x.NumMethods() == 0 {
+			return x
+		}
+	}
+
+	//	spew.Dump(what)
+	//	spew.Dump(where)
+	//	panic("could not substitute wildcard")
+
+	return nil
+}
+
 func (check *Checker) call(x *operand, e *ast.CallExpr) exprKind {
 	check.exprOrType(x, e.Fun)
 
@@ -62,8 +242,29 @@ func (check *Checker) call(x *operand, e *ast.CallExpr) exprKind {
 		}
 
 		arg, n, _ := unpack(func(x *operand, i int) { check.multiExpr(x, e.Args[i]) }, len(e.Args), false)
+
+		var wcard Type
+		saw := make(map[*Named]*Named)
+
 		if arg != nil {
-			check.arguments(x, e, sig, arg, n)
+			wcard = check.arguments(x, e, sig, arg, n, saw)
+			if wcard == nil {
+			} else if wcard == Typ[Invalid] {
+				check.errorf(x.pos(), "wildcard type conflict in argument %s", x)
+				x.mode = invalid
+				x.expr = e
+				return statement
+			} else if isUntyped(wcard) {
+				check.errorf(x.pos(), "wildcard cannot be untyped %s", x)
+				x.mode = invalid
+				x.expr = e
+				return statement
+			} else if _, ok := saw[nil]; ok && !Comparable(wcard) {
+				check.errorf(x.pos(), "argument %s implies not comparable wildcard map key", x)
+				x.mode = invalid
+				x.expr = e
+				return statement
+			}
 		} else {
 			x.mode = invalid
 		}
@@ -78,6 +279,20 @@ func (check *Checker) call(x *operand, e *ast.CallExpr) exprKind {
 		default:
 			x.mode = value
 			x.typ = sig.results
+		}
+
+		if wcard != nil && x.mode == value {
+			if _, ok := wcard.(*Basic); !ok || wcard.(*Basic).kind != UntypedVoid {
+				var xtyp = substitute(x.typ, wcard, saw)
+				if xtyp == Typ[Invalid] {
+					check.errorf(x.pos(), "map key of result has uncomparable type")
+					x.mode = invalid
+					x.expr = e
+					return statement
+				} else {
+					x.typ = xtyp
+				}
+			}
 		}
 
 		x.expr = e
@@ -215,19 +430,19 @@ func unpack(get getter, n int, allowCommaOk bool) (getter, int, bool) {
 
 // arguments checks argument passing for the call with the given signature.
 // The arg function provides the operand for the i'th argument.
-func (check *Checker) arguments(x *operand, call *ast.CallExpr, sig *Signature, arg getter, n int) {
+func (check *Checker) arguments(x *operand, call *ast.CallExpr, sig *Signature, arg getter, n int, saw map[*Named]*Named) (wildc Type) {
 	if call.Ellipsis.IsValid() {
 		// last argument is of the form x...
 		if !sig.variadic {
 			check.errorf(call.Ellipsis, "cannot use ... in call to non-variadic %s", call.Fun)
 			check.useGetter(arg, n)
-			return
+			return nil
 		}
 		if len(call.Args) == 1 && n > 1 {
 			// f()... is not permitted if f() is multi-valued
 			check.errorf(call.Ellipsis, "cannot use ... with %d-valued %s", n, call.Args[0])
 			check.useGetter(arg, n)
-			return
+			return nil
 		}
 	}
 
@@ -239,8 +454,26 @@ func (check *Checker) arguments(x *operand, call *ast.CallExpr, sig *Signature, 
 			if i == n-1 && call.Ellipsis.IsValid() {
 				ellipsis = call.Ellipsis
 			}
-			check.argument(call.Fun, sig, i, x, ellipsis)
+			wildc = check_typeconflict(check.argument(call.Fun, sig, i, x, ellipsis, saw), wildc,
+				sig.variadic && i+1 >= sig.params.Len())
 		}
+	}
+
+	// ban generic varargs callsite with undetectable wildcard due to no vararg arg
+	if sig.variadic && wildc == nil && n+1 == sig.params.Len() {
+		// discover if vararg arg is generic type
+		var typ = sig.params.vars[n].typ
+		_ = typ
+
+		var is_this_vararg_generic = wildcard(typ, typ, nil)
+
+		//		spew.Dump(is_this_vararg_generic)
+
+		if Typ[UntypedVoid] == is_this_vararg_generic {
+			check.errorf(call.Rparen, "undetermined wildcard from missing varargs in call to %s", call.Fun)
+			return Typ[Invalid]
+		}
+
 	}
 
 	// check argument count
@@ -253,14 +486,133 @@ func (check *Checker) arguments(x *operand, call *ast.CallExpr, sig *Signature, 
 		check.errorf(call.Rparen, "too few arguments in call to %s", call.Fun)
 		// ok to continue
 	}
+	return wildc
+}
+
+func wildcard(a Type, b Type, saw map[*Named]*Named) Type {
+	if saw == nil {
+		saw = make(map[*Named]*Named)
+	}
+	switch b.(type) {
+	case *Pointer:
+		if x, ok := a.(*Basic); ok {
+			if x.Kind() == UntypedNil {
+				if wildcard(b, b, nil) == Typ[UntypedVoid] {
+					return Typ[UntypedNil]
+				}
+			}
+		}
+
+		if _, ok := a.(*Pointer); ok {
+			return wildcard(a.(*Pointer).Elem(), b.(*Pointer).Elem(), saw)
+		}
+	case *Basic:
+		if b.(*Basic).Kind() == UntypedVoid {
+			return a
+		}
+		return nil
+	case *Array:
+		if x, ok := a.(*Array); ok && x.Len() == b.(*Array).Len() {
+			return wildcard(a.(*Array).Elem(), b.(*Array).Elem(), saw)
+		}
+	case *Slice:
+		if x, ok := a.(*Basic); ok {
+			if x.Kind() == UntypedNil {
+				if wildcard(b, b, nil) == Typ[UntypedVoid] {
+					return Typ[UntypedNil]
+				}
+			}
+		}
+		if _, ok := a.(*Slice); ok {
+			return wildcard(a.(*Slice).Elem(), b.(*Slice).Elem(), saw)
+		}
+	case *Signature:
+		if x, ok := a.(*Basic); ok {
+			if x.Kind() == UntypedNil {
+				if wildcard(b, b, nil) == Typ[UntypedVoid] {
+					return Typ[UntypedNil]
+				}
+			}
+		}
+		if _, ok := a.(*Signature); ok {
+			x := wildcard(a.(*Signature).Params(), b.(*Signature).Params(), saw)
+			y := wildcard(a.(*Signature).Results(), b.(*Signature).Results(), saw)
+			return check_typeconflict(x, y, false)
+		}
+	case *Tuple:
+		if _, ok := a.(*Tuple); ok && a.(*Tuple).Len() == b.(*Tuple).Len() {
+			var x, y Type = nil, nil
+			for i := 0; i < a.(*Tuple).Len(); i++ {
+				x = wildcard(a.(*Tuple).At(i).Type(), b.(*Tuple).At(i).Type(), saw)
+				y = check_typeconflict(y, x, false)
+			}
+			return y
+		}
+	case *Named:
+		if _, ok := a.(*Named); ok {
+			if look, ok := saw[b.(*Named)]; ok {
+				if !IdenticalIgnoreTags(look, a.(*Named)) {
+					return Typ[Invalid]
+				}
+				return nil
+			}
+			saw[b.(*Named)] = a.(*Named)
+			return wildcard(a.(*Named).Underlying(), b.(*Named).Underlying(), saw)
+		}
+	case *Struct:
+		if _, ok := a.(*Struct); ok && a.(*Struct).NumFields() == b.(*Struct).NumFields() {
+			var x, y Type = nil, nil
+			for i := 0; i < a.(*Struct).NumFields(); i++ {
+				x = wildcard(a.(*Struct).Field(i).Type(), b.(*Struct).Field(i).Type(), saw)
+				y = check_typeconflict(y, x, false)
+			}
+			return y
+		}
+	case *Chan:
+		if x, ok := a.(*Basic); ok {
+			if x.Kind() == UntypedNil {
+				if wildcard(b, b, nil) == Typ[UntypedVoid] {
+					return Typ[UntypedNil]
+				}
+			}
+		}
+
+		if x, ok := a.(*Chan); ok && x.Dir() == b.(*Chan).Dir() {
+			return wildcard(a.(*Chan).Elem(), b.(*Chan).Elem(), saw)
+		}
+	case *Map:
+		if x, ok := a.(*Basic); ok {
+			if x.Kind() == UntypedNil {
+				if wildcard(b, b, nil) == Typ[UntypedVoid] {
+					return Typ[UntypedNil]
+				}
+			}
+		}
+		if _, ok := a.(*Map); ok {
+			var x Type = nil
+			x = wildcard(a.(*Map).Key(), b.(*Map).Key(), saw)
+			if x != nil {
+				saw[nil] = nil
+			}
+			return check_typeconflict(wildcard(a.(*Map).Elem(), b.(*Map).Elem(), saw), x, false)
+
+		}
+
+	}
+
+	//	spew.Dump(a)
+	//	spew.Dump(b)
+	//	panic("could not determine wildcard")
+
+	return nil
 }
 
 // argument checks passing of argument x to the i'th parameter of the given signature.
 // If ellipsis is valid, the argument is followed by ... at that position in the call.
-func (check *Checker) argument(fun ast.Expr, sig *Signature, i int, x *operand, ellipsis token.Pos) {
+func (check *Checker) argument(fun ast.Expr, sig *Signature, i int, x *operand, ellipsis token.Pos, saw map[*Named]*Named) Type {
 	check.singleValue(x)
 	if x.mode == invalid {
-		return
+		return nil
 	}
 
 	n := sig.params.Len()
@@ -279,18 +631,18 @@ func (check *Checker) argument(fun ast.Expr, sig *Signature, i int, x *operand, 
 		}
 	default:
 		check.errorf(x.pos(), "too many arguments")
-		return
+		return nil
 	}
 
 	if ellipsis.IsValid() {
 		// argument is of the form x... and x is single-valued
 		if i != n-1 {
 			check.errorf(ellipsis, "can only use ... with matching parameter")
-			return
+			return nil
 		}
 		if _, ok := x.typ.Underlying().(*Slice); !ok && x.typ != Typ[UntypedNil] { // see issue #18268
 			check.errorf(x.pos(), "cannot use %s as parameter of type %s", x, typ)
-			return
+			return nil
 		}
 	} else if sig.variadic && i >= n-1 {
 		// use the variadic parameter slice's element type
@@ -298,7 +650,26 @@ func (check *Checker) argument(fun ast.Expr, sig *Signature, i int, x *operand, 
 	}
 
 	check.assignment(x, typ, check.sprintf("argument to %s", fun))
+
+	return wildcard(x.typ, typ, saw)
 }
+
+type FakeObj struct{}
+
+func (FakeObj) Parent() *Scope                        { return nil }  // scope in which this object is declared; nil for methods and struct fields
+func (FakeObj) Pos() token.Pos                        { return 0 }    // position of object identifier in declaration
+func (FakeObj) Pkg() *Package                         { return nil }  // package to which this object belongs; nil for labels and objects in the Universe scope
+func (FakeObj) Name() string                          { return "" }   // package local object name
+func (FakeObj) Type() Type                            { return nil }  // object type
+func (FakeObj) Exported() bool                        { return true } // reports whether the name starts with a capital letter
+func (FakeObj) Id() string                            { return "" }   // object name if exported, qualified name if not exported (see func Id)
+func (FakeObj) String() string                        { return "" }
+func (FakeObj) order() uint32                         { return 0 }
+func (FakeObj) setOrder(uint32)                       {}
+func (FakeObj) setParent(*Scope)                      {}
+func (FakeObj) sameId(pkg *Package, name string) bool { return false }
+func (FakeObj) scopePos() token.Pos                   { return 0 }
+func (FakeObj) setScopePos(pos token.Pos)             {}
 
 func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 	// these must be declared before the "goto Error" statements
@@ -324,14 +695,22 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 			if exp == nil {
 				if !pkg.fake {
 					check.errorf(e.Pos(), "%s not declared by package %s", sel, pkg.name)
+					goto Error
 				}
-				goto Error
+			} else {
+				if !exp.Exported() && !pkg.fake {
+					check.errorf(e.Pos(), "%s not exported by package %s", sel, pkg.name)
+					// ok to continue
+				}
+				check.recordUse(e.Sel, exp)
 			}
-			if !exp.Exported() {
-				check.errorf(e.Pos(), "%s not exported by package %s", sel, pkg.name)
-				// ok to continue
+
+			if exp == nil && pkg.fake {
+				x.mode = novalue
+				x.typ = NewNamed(NewTypeName(0, pkg, sel, emptyInterface.Complete()), emptyInterface.Complete(), []*Func{})
+				x.expr = e
+				return
 			}
-			check.recordUse(e.Sel, exp)
 
 			// Simplified version of the code for *ast.Idents:
 			// - imported objects are always fully initialized
@@ -377,9 +756,10 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 		case indirect:
 			check.invalidOp(e.Pos(), "%s is not in method set of %s", sel, x.typ)
 		default:
-			check.invalidOp(e.Pos(), "%s has no field or method %s", x, sel)
+			//			check.invalidOp(e.Pos(), "%s has no field or method %s", x, sel)
 		}
-		goto Error
+		//		goto Error
+		obj = FakeObj{}
 	}
 
 	if x.mode == typexpr {
@@ -464,7 +844,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr) {
 			check.addDeclDep(obj)
 
 		default:
-			unreachable()
+			//			unreachable()
 		}
 	}
 

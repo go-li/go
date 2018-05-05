@@ -33,6 +33,9 @@ func WriteExpr(buf *bytes.Buffer, x ast.Expr) {
 	default:
 		buf.WriteString("(bad expr)") // nil, ast.BadExpr, ast.KeyValueExpr
 
+	case *ast.VoidType:
+		buf.WriteString("(void)")
+
 	case *ast.Ident:
 		buf.WriteString(x.Name)
 

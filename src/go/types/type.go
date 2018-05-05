@@ -50,6 +50,7 @@ const (
 	UntypedComplex
 	UntypedString
 	UntypedNil
+	UntypedVoid
 
 	// aliases
 	Byte = Uint8

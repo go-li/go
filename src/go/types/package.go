@@ -47,6 +47,9 @@ func (pkg *Package) Complete() bool { return pkg.complete }
 // MarkComplete marks a package as complete.
 func (pkg *Package) MarkComplete() { pkg.complete = true }
 
+// MarkComplete marks a package as fake.
+func (pkg *Package) MarkFake() { pkg.fake = true }
+
 // Imports returns the list of packages directly imported by
 // pkg; the list is in source order.
 //

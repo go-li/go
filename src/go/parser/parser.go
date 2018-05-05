@@ -68,6 +68,9 @@ type parser struct {
 	// (maintained by open/close LabelScope)
 	labelScope  *ast.Scope     // label scope for current function
 	targetStack [][]*ast.Ident // stack of unresolved labels
+
+	// Ban standalone generic arrays
+	initial_type bool // true when did not saw some type
 }
 
 func (p *parser) init(fset *token.FileSet, filename string, src []byte, mode Mode) {
@@ -612,6 +615,25 @@ func (p *parser) parseRhsList() []ast.Expr {
 
 // ----------------------------------------------------------------------------
 // Types
+func (p *parser) parseVoidableType() ast.Expr {
+	if p.trace {
+		defer un(trace(p, "VoidableType"))
+	}
+
+	typ := p.tryType()
+
+	if typ == nil {
+		pos := p.pos
+
+		return &ast.VoidType{Begin: pos}
+	} else if t, ok := typ.(*ast.Ident); ok && t.Name == "_" {
+		pos := p.pos
+
+		return &ast.VoidType{Begin: pos, Under: true}
+	}
+
+	return typ
+}
 
 func (p *parser) parseType() ast.Expr {
 	if p.trace {
@@ -667,7 +689,22 @@ func (p *parser) parseArrayType() ast.Expr {
 	}
 	p.exprLev--
 	p.expect(token.RBRACK)
-	elt := p.parseType()
+
+	if len == nil {
+		p.initial_type = false
+	}
+
+	pos := p.pos
+	elt := p.parseVoidableType()
+
+	switch elt.(type) {
+	case *ast.VoidType:
+		if p.initial_type {
+			p.error(p.pos, "cannot use standalone generic array")
+			p.initial_type = false
+			return &ast.BadExpr{From: pos, To: p.pos}
+		}
+	}
 
 	return &ast.ArrayType{Lbrack: lbrack, Len: len, Elt: elt}
 }
@@ -705,6 +742,8 @@ func (p *parser) parseFieldDecl(scope *ast.Scope) *ast.Field {
 		}
 		p.next()
 	}
+
+	p.initial_type = true
 
 	typ := p.tryVarType(false)
 
@@ -773,8 +812,10 @@ func (p *parser) parsePointerType() *ast.StarExpr {
 		defer un(trace(p, "PointerType"))
 	}
 
+	p.initial_type = false
+
 	star := p.expect(token.MUL)
-	base := p.parseType()
+	base := p.parseVoidableType()
 
 	return &ast.StarExpr{Star: star, X: base}
 }
@@ -787,9 +828,8 @@ func (p *parser) tryVarType(isParam bool) ast.Expr {
 		typ := p.tryIdentOrType() // don't use parseType so we can provide better error message
 		if typ != nil {
 			p.resolve(typ)
-		} else {
-			p.error(pos, "'...' parameter is missing type")
-			typ = &ast.BadExpr{From: pos, To: p.pos}
+		} else if isParam {
+			typ = &ast.VoidType{Begin: p.pos}
 		}
 		return &ast.Ellipsis{Ellipsis: pos, Elt: typ}
 	}
@@ -798,6 +838,8 @@ func (p *parser) tryVarType(isParam bool) ast.Expr {
 
 // If the result is an identifier, it is not resolved.
 func (p *parser) parseVarType(isParam bool) ast.Expr {
+	p.initial_type = true
+
 	typ := p.tryVarType(isParam)
 	if typ == nil {
 		pos := p.pos
@@ -889,6 +931,8 @@ func (p *parser) parseResult(scope *ast.Scope) *ast.FieldList {
 
 	if p.tok == token.LPAREN {
 		return p.parseParameters(scope, false)
+	} else {
+		p.initial_type = true
 	}
 
 	typ := p.tryType()
@@ -981,11 +1025,13 @@ func (p *parser) parseMapType() *ast.MapType {
 		defer un(trace(p, "MapType"))
 	}
 
+	p.initial_type = false
+
 	pos := p.expect(token.MAP)
 	p.expect(token.LBRACK)
-	key := p.parseType()
+	key := p.parseVoidableType()
 	p.expect(token.RBRACK)
-	value := p.parseType()
+	value := p.parseVoidableType()
 
 	return &ast.MapType{Map: pos, Key: key, Value: value}
 }
@@ -994,6 +1040,8 @@ func (p *parser) parseChanType() *ast.ChanType {
 	if p.trace {
 		defer un(trace(p, "ChanType"))
 	}
+
+	p.initial_type = false
 
 	pos := p.pos
 	dir := ast.SEND | ast.RECV
@@ -1010,7 +1058,7 @@ func (p *parser) parseChanType() *ast.ChanType {
 		p.expect(token.CHAN)
 		dir = ast.RECV
 	}
-	value := p.parseType()
+	value := p.parseVoidableType()
 
 	return &ast.ChanType{Begin: pos, Arrow: arrow, Dir: dir, Value: value}
 }
@@ -1154,7 +1202,13 @@ func (p *parser) parseOperand(lhs bool) ast.Expr {
 
 	case token.FUNC:
 		return p.parseFuncTypeOrLit()
+
+	case token.SEMICOLON:
+		p.next()
+		return p.parseOperand(lhs)
 	}
+
+	p.initial_type = true
 
 	if typ := p.tryIdentOrType(); typ != nil {
 		// could be type for composite literal or conversion
@@ -1191,6 +1245,8 @@ func (p *parser) parseTypeAssertion(x ast.Expr) ast.Expr {
 		// type switch: typ == nil
 		p.next()
 	} else {
+		p.initial_type = true
+
 		typ = p.parseType()
 	}
 	rparen := p.expect(token.RPAREN)
@@ -1513,7 +1569,7 @@ L:
 }
 
 // If lhs is set and the result is an identifier, it is not resolved.
-func (p *parser) parseUnaryExpr(lhs bool) ast.Expr {
+func (p *parser) parseUnaryExpr(lhs bool, aftermul bool) ast.Expr {
 	if p.trace {
 		defer un(trace(p, "UnaryExpr"))
 	}
@@ -1522,7 +1578,7 @@ func (p *parser) parseUnaryExpr(lhs bool) ast.Expr {
 	case token.ADD, token.SUB, token.NOT, token.XOR, token.AND:
 		pos, op := p.pos, p.tok
 		p.next()
-		x := p.parseUnaryExpr(false)
+		x := p.parseUnaryExpr(false, false)
 		return &ast.UnaryExpr{OpPos: pos, Op: op, X: p.checkExpr(x)}
 
 	case token.ARROW:
@@ -1544,7 +1600,7 @@ func (p *parser) parseUnaryExpr(lhs bool) ast.Expr {
 		//   <- (chan type)    =>  (<-chan type)
 		//   <- (chan<- type)  =>  (<-chan (<-type))
 
-		x := p.parseUnaryExpr(false)
+		x := p.parseUnaryExpr(false, false)
 
 		// determine which case we have
 		if typ, ok := x.(*ast.ChanType); ok {
@@ -1575,8 +1631,12 @@ func (p *parser) parseUnaryExpr(lhs bool) ast.Expr {
 		// pointer type or unary "*" expression
 		pos := p.pos
 		p.next()
-		x := p.parseUnaryExpr(false)
+		x := p.parseUnaryExpr(false, true)
 		return &ast.StarExpr{Star: pos, X: p.checkExprOrType(x)}
+	case token.RPAREN:
+		if aftermul {
+			return &ast.VoidType{Begin: p.pos}
+		}
 	}
 
 	return p.parsePrimaryExpr(lhs)
@@ -1596,7 +1656,7 @@ func (p *parser) parseBinaryExpr(lhs bool, prec1 int) ast.Expr {
 		defer un(trace(p, "BinaryExpr"))
 	}
 
-	x := p.parseUnaryExpr(lhs)
+	x := p.parseUnaryExpr(lhs, false)
 	for {
 		op, oprec := p.tokPrec()
 		if oprec < prec1 {
@@ -1875,9 +1935,13 @@ func (p *parser) parseTypeList() (list []ast.Expr) {
 		defer un(trace(p, "TypeList"))
 	}
 
+	p.initial_type = true
+
 	list = append(list, p.parseType())
 	for p.tok == token.COMMA {
 		p.next()
+
+		p.initial_type = true
 		list = append(list, p.parseType())
 	}
 
@@ -2272,6 +2336,8 @@ func (p *parser) parseValueSpec(doc *ast.CommentGroup, keyword token.Token, iota
 		defer un(trace(p, keyword.String()+"Spec"))
 	}
 
+	p.initial_type = true
+
 	pos := p.pos
 	idents := p.parseIdentList()
 	typ := p.tryType()
@@ -2331,6 +2397,9 @@ func (p *parser) parseTypeSpec(doc *ast.CommentGroup, _ token.Token, _ int) ast.
 		spec.Assign = p.pos
 		p.next()
 	}
+
+	p.initial_type = true
+
 	spec.Type = p.parseType()
 	p.expectSemi() // call before accessing p.linecomment
 	spec.Comment = p.lineComment

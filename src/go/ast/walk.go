@@ -178,6 +178,9 @@ func Walk(v Visitor, node Node) {
 	case *ChanType:
 		Walk(v, n.Value)
 
+	case *VoidType:
+		// nothing to do
+
 	// Statements
 	case *BadStmt:
 		// nothing to do

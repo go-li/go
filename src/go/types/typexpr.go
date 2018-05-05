@@ -215,7 +215,10 @@ func (check *Checker) typExprInternal(e ast.Expr, def *Named, path []*TypeName) 
 	switch e := e.(type) {
 	case *ast.BadExpr:
 		// ignore - error reported before
-
+	case *ast.VoidType:
+		typ := Typ[UntypedVoid]
+		def.setUnderlying(typ)
+		return typ
 	case *ast.Ident:
 		var x operand
 		check.ident(&x, e, def, path)
@@ -245,7 +248,11 @@ func (check *Checker) typExprInternal(e ast.Expr, def *Named, path []*TypeName) 
 		case invalid:
 			// ignore - error reported before
 		case novalue:
-			check.errorf(x.pos(), "%s used as type", &x)
+			typ := x.typ
+			def.setUnderlying(typ)
+			return typ
+			return typ
+			//			check.errorf(x.pos(), "%s used as type", &x)
 		default:
 			check.errorf(x.pos(), "%s is not a type", &x)
 		}
@@ -373,7 +380,9 @@ func (check *Checker) arrayLength(e ast.Expr) int64 {
 	check.expr(&x, e)
 	if x.mode != constant_ {
 		if x.mode != invalid {
-			check.errorf(x.pos(), "array length %s must be constant", &x)
+			if x.mode != novalue {
+				check.errorf(x.pos(), "array length %s must be constant", &x)
+			}
 		}
 		return 0
 	}
@@ -690,6 +699,10 @@ func (check *Checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 				continue
 
 			case *Interface:
+				if t.Empty() && isPtr {
+					continue // empty interface can be pointered
+				}
+
 				if isPtr {
 					check.errorf(pos, "anonymous field type cannot be a pointer to an interface")
 					continue

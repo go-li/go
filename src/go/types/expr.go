@@ -7,8 +7,8 @@
 package types
 
 import (
-	"fmt"
 	"go/ast"
+	"fmt"
 	"go/constant"
 	"go/token"
 	"math"
@@ -84,11 +84,11 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr, op token.Token) {
 	case token.AND:
 		// spec: "As an exception to the addressability
 		// requirement x may also be a composite literal."
-		if _, ok := unparen(x.expr).(*ast.CompositeLit); !ok && x.mode != variable {
-			check.invalidOp(x.pos(), "cannot take address of %s", x)
-			x.mode = invalid
-			return
-		}
+		//		if _, ok := unparen(x.expr).(*ast.CompositeLit); !ok && x.mode != variable {
+		//			check.invalidOp(x.pos(), "cannot take address of %s", x)
+		//			x.mode = invalid
+		//			return
+		//		}
 		x.mode = value
 		x.typ = &Pointer{base: x.typ}
 		return
@@ -190,6 +190,12 @@ func roundFloat64(x constant.Value) constant.Value {
 func representableConst(x constant.Value, conf *Config, typ *Basic, rounded *constant.Value) bool {
 	if x.Kind() == constant.Unknown {
 		return true // avoid follow-up errors
+	}
+	if typ.Kind() == UntypedVoid {
+		if rounded != nil {
+			*rounded = x
+		}
+		return true
 	}
 
 	switch {
@@ -377,6 +383,7 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		*ast.FuncType,
 		*ast.InterfaceType,
 		*ast.MapType,
+		*ast.VoidType,
 		*ast.ChanType:
 		// These expression are never untyped - nothing to do.
 		// The respective sub-expressions got their final types
@@ -507,6 +514,14 @@ func (check *Checker) convertUntyped(x *operand, target Type) {
 			}
 			// expression value may have been rounded - update if needed
 			check.updateExprVal(x.expr, x.val)
+
+			switch target.(type) {
+			case *Basic:
+				switch target.(*Basic).kind {
+				case UntypedVoid:
+					target = Default(x.typ)
+				}
+			}
 		} else {
 			// Non-constant untyped values may appear as the
 			// result of comparisons (untyped bool), intermediate
@@ -1006,6 +1021,8 @@ func (check *Checker) exprInternal(x *operand, e ast.Expr, hint Type) exprKind {
 	x.typ = Typ[Invalid]
 
 	switch e := e.(type) {
+	case *ast.VoidType:
+
 	case *ast.BadExpr:
 		goto Error // error was reported before
 
@@ -1578,6 +1595,7 @@ func (check *Checker) multiExpr(x *operand, e ast.Expr) {
 		return
 	case novalue:
 		msg = "%s used as value"
+		return
 	case builtin:
 		msg = "%s must be called"
 	case typexpr:
@@ -1601,6 +1619,7 @@ func (check *Checker) exprWithHint(x *operand, e ast.Expr, hint Type) {
 		return
 	case novalue:
 		msg = "%s used as value"
+		return
 	case builtin:
 		msg = "%s must be called"
 	case typexpr:
@@ -1617,7 +1636,7 @@ func (check *Checker) exprOrType(x *operand, e ast.Expr) {
 	check.rawExpr(x, e, nil)
 	check.singleValue(x)
 	if x.mode == novalue {
-		check.errorf(x.pos(), "%s used as value or type", x)
+		//		check.errorf(x.pos(), "%s used as value or type", x)
 		x.mode = invalid
 	}
 }

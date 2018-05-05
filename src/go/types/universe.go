@@ -55,6 +55,7 @@ var Typ = []*Basic{
 	UntypedComplex: {UntypedComplex, IsComplex | IsUntyped, "untyped complex"},
 	UntypedString:  {UntypedString, IsString | IsUntyped, "untyped string"},
 	UntypedNil:     {UntypedNil, IsUntyped, "untyped nil"},
+	UntypedVoid:    {UntypedVoid, 0, "untyped void"},
 }
 
 var aliases = [...]*Basic{

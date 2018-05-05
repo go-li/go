@@ -415,6 +415,12 @@ type (
 		Dir   ChanDir   // channel direction
 		Value Expr      // value type
 	}
+
+	// A VoidType node represents an empty space representing the wildcard
+	VoidType struct {
+		Begin token.Pos // position of the emtpty space
+		Under bool      // is underscore
+	}
 )
 
 // Pos and End implementations for expression/type nodes.
@@ -451,6 +457,7 @@ func (x *FuncType) Pos() token.Pos {
 func (x *InterfaceType) Pos() token.Pos { return x.Interface }
 func (x *MapType) Pos() token.Pos       { return x.Map }
 func (x *ChanType) Pos() token.Pos      { return x.Begin }
+func (x *VoidType) Pos() token.Pos      { return x.Begin }
 
 func (x *BadExpr) End() token.Pos { return x.To }
 func (x *Ident) End() token.Pos   { return token.Pos(int(x.NamePos) + len(x.Name)) }
@@ -484,6 +491,7 @@ func (x *FuncType) End() token.Pos {
 func (x *InterfaceType) End() token.Pos { return x.Methods.End() }
 func (x *MapType) End() token.Pos       { return x.Value.End() }
 func (x *ChanType) End() token.Pos      { return x.Value.End() }
+func (x *VoidType) End() token.Pos      { return x.Begin }
 
 // exprNode() ensures that only expression/type nodes can be
 // assigned to an Expr.
@@ -511,6 +519,7 @@ func (*FuncType) exprNode()      {}
 func (*InterfaceType) exprNode() {}
 func (*MapType) exprNode()       {}
 func (*ChanType) exprNode()      {}
+func (*VoidType) exprNode()      {}
 
 // ----------------------------------------------------------------------------
 // Convenience functions for Idents
