@@ -34,7 +34,7 @@ func check_typeconflict(newt, oldt Type, vararg_eface_promotion bool) Type {
 	if vararg_eface_promotion {
 		switch x := oldt.(type) {
 		case *Interface:
-			if x.NumMethods() == 0 {
+			if x.Empty() {
 				if AssignableTo(newt, oldt) {
 					return oldt
 				}
@@ -44,7 +44,7 @@ func check_typeconflict(newt, oldt Type, vararg_eface_promotion bool) Type {
 
 	//	spew.Dump(oldt)
 	//	spew.Dump(newt)
-	//	panic("could not substitute wildcard")
+	panic("could not resolve typeconflict")
 
 	return Typ[Invalid]
 }
@@ -179,14 +179,14 @@ func substitute(where Type, what Type, saw map[*Named]*Named) Type {
 		}
 		return inval(a, inval(b, NewMap(b, a)))
 	case *Interface:
-		if x.NumMethods() == 0 {
+		if x.Empty() {
 			return x
 		}
 	}
 
 	//	spew.Dump(what)
 	//	spew.Dump(where)
-	//	panic("could not substitute wildcard")
+	panic("could not substitute wildcard")
 
 	return nil
 }
@@ -549,9 +549,18 @@ func wildcard(a Type, b Type, saw map[*Named]*Named) Type {
 			return y
 		}
 	case *Named:
-		if _, ok := a.(*Named); ok {
+		if poke, ok := a.(*Named); ok {
 			if look, ok := saw[b.(*Named)]; ok {
-				if !IdenticalIgnoreTags(look, a.(*Named)) {
+				var upoke = poke.Underlying()
+				for upoke != upoke.Underlying() {
+					upoke = upoke.Underlying()
+				}
+				var ulook = look.Underlying()
+				for ulook != ulook.Underlying() {
+					ulook = ulook.Underlying()
+				}
+
+				if !IdenticalIgnoreTags(upoke, ulook) && !AssignableTo(a, b) {
 					return Typ[Invalid]
 				}
 				return nil
@@ -597,7 +606,22 @@ func wildcard(a Type, b Type, saw map[*Named]*Named) Type {
 			return check_typeconflict(wildcard(a.(*Map).Elem(), b.(*Map).Elem(), saw), x, false)
 
 		}
-
+	case *Interface:
+		if x, ok := a.(*Basic); ok {
+			if x.Kind() == UntypedNil {
+				if wildcard(b, b, nil) == Typ[UntypedVoid] {
+					return Typ[UntypedNil]
+				}
+			}
+		}
+		if _, ok := a.(*Interface); ok && a.(*Interface).NumMethods() == b.(*Interface).NumMethods() {
+			var x, y Type = nil, nil
+			for i := 0; i < a.(*Interface).NumMethods(); i++ {
+				x = wildcard(a.(*Interface).Method(i).Type(), b.(*Interface).Method(i).Type(), saw)
+				y = check_typeconflict(y, x, false)
+			}
+			return y
+		}
 	}
 
 	//	spew.Dump(a)

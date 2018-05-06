@@ -248,11 +248,7 @@ func (check *Checker) typExprInternal(e ast.Expr, def *Named, path []*TypeName) 
 		case invalid:
 			// ignore - error reported before
 		case novalue:
-			typ := x.typ
-			def.setUnderlying(typ)
-			return typ
-			return typ
-			//			check.errorf(x.pos(), "%s used as type", &x)
+			check.errorf(x.pos(), "%s used as type", &x)
 		default:
 			check.errorf(x.pos(), "%s is not a type", &x)
 		}
@@ -699,10 +695,6 @@ func (check *Checker) structType(styp *Struct, e *ast.StructType, path []*TypeNa
 				continue
 
 			case *Interface:
-				if t.Empty() && isPtr {
-					continue // empty interface can be pointered
-				}
-
 				if isPtr {
 					check.errorf(pos, "anonymous field type cannot be a pointer to an interface")
 					continue

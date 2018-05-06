@@ -206,7 +206,7 @@ func (check *Checker) initFiles(files []*ast.File) {
 			check.files = append(check.files, file)
 
 		default:
-			//			check.errorf(file.Package, "package %s; expected %s", name, pkg.name)
+			check.errorf(file.Package, "package %s; expected %s", name, pkg.name)
 			// ignore this file
 		}
 	}

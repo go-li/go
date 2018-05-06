@@ -84,11 +84,11 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr, op token.Token) {
 	case token.AND:
 		// spec: "As an exception to the addressability
 		// requirement x may also be a composite literal."
-		//		if _, ok := unparen(x.expr).(*ast.CompositeLit); !ok && x.mode != variable {
-		//			check.invalidOp(x.pos(), "cannot take address of %s", x)
-		//			x.mode = invalid
-		//			return
-		//		}
+		if _, ok := unparen(x.expr).(*ast.CompositeLit); !ok && x.mode != variable {
+			check.invalidOp(x.pos(), "cannot take address of %s", x)
+			x.mode = invalid
+			return
+		}
 		x.mode = value
 		x.typ = &Pointer{base: x.typ}
 		return
@@ -1595,7 +1595,6 @@ func (check *Checker) multiExpr(x *operand, e ast.Expr) {
 		return
 	case novalue:
 		msg = "%s used as value"
-		return
 	case builtin:
 		msg = "%s must be called"
 	case typexpr:
@@ -1619,7 +1618,6 @@ func (check *Checker) exprWithHint(x *operand, e ast.Expr, hint Type) {
 		return
 	case novalue:
 		msg = "%s used as value"
-		return
 	case builtin:
 		msg = "%s must be called"
 	case typexpr:
@@ -1636,7 +1634,7 @@ func (check *Checker) exprOrType(x *operand, e ast.Expr) {
 	check.rawExpr(x, e, nil)
 	check.singleValue(x)
 	if x.mode == novalue {
-		//		check.errorf(x.pos(), "%s used as value or type", x)
+		check.errorf(x.pos(), "%s used as value or type", x)
 		x.mode = invalid
 	}
 }
