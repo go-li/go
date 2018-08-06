@@ -29,6 +29,9 @@ func checkLower(f *Func) {
 					continue // ok not to lower
 				}
 			}
+
+			continue // fuck not lowered
+
 			s := "not lowered: " + v.String() + ", " + v.Op.String() + " " + v.Type.SimpleString()
 			for _, a := range v.Args {
 				s += " " + a.Type.SimpleString()

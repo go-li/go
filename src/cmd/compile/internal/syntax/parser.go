@@ -995,6 +995,19 @@ func (p *parser) complitexpr() *CompositeLit {
 // ----------------------------------------------------------------------------
 // Types
 
+func (p *parser) typeOrVoid() Expr {
+	if trace {
+		defer p.trace("typeOrVoid")()
+	}
+
+	typ := p.typeOrNil()
+	if typ == nil {
+		typ = new(VoidType)
+	}
+
+	return typ
+}
+
 func (p *parser) type_() Expr {
 	if trace {
 		defer p.trace("type_")()
@@ -1035,7 +1048,7 @@ func (p *parser) typeOrNil() Expr {
 	case _Star:
 		// ptrtype
 		p.next()
-		return newIndirect(pos, p.type_())
+		return newIndirect(pos, p.typeOrVoid())
 
 	case _Arrow:
 		// recvchantype
@@ -1062,7 +1075,7 @@ func (p *parser) typeOrNil() Expr {
 			p.xnest--
 			t := new(SliceType)
 			t.pos = pos
-			t.Elem = p.type_()
+			t.Elem = p.typeOrVoid()
 			return t
 		}
 
@@ -1074,7 +1087,7 @@ func (p *parser) typeOrNil() Expr {
 		}
 		p.want(_Rbrack)
 		p.xnest--
-		t.Elem = p.type_()
+		t.Elem = p.typeOrVoid()
 		return t
 
 	case _Chan:

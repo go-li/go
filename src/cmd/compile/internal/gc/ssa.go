@@ -3848,6 +3848,8 @@ func (s *state) storeTypeScalars(t *types.Type, left, right *ssa.Value, skip ski
 		// nothing
 	case t.IsArray() && t.NumElem() == 1:
 		s.storeTypeScalars(t.Elem(), left, s.newValue1I(ssa.OpArraySelect, t.Elem(), 0, right), 0)
+	case t.IsVoid():
+		// nothing
 	default:
 		s.Fatalf("bad write barrier type %v", t)
 	}
@@ -3885,6 +3887,8 @@ func (s *state) storeTypePtrs(t *types.Type, left, right *ssa.Value) {
 		// nothing
 	case t.IsArray() && t.NumElem() == 1:
 		s.storeTypePtrs(t.Elem(), left, s.newValue1I(ssa.OpArraySelect, t.Elem(), 0, right))
+	case t.IsVoid():
+		// nothing
 	default:
 		s.Fatalf("bad write barrier type %v", t)
 	}

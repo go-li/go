@@ -74,6 +74,8 @@ const (
 	TSSA   // internal types used by SSA backend (flags, memory, etc.)
 	TTUPLE // a pair of types, used by SSA backend
 
+	TVOID
+
 	NTYPE
 )
 
@@ -1221,7 +1223,7 @@ func (t *Type) IsPtr() bool {
 
 // IsUnsafePtr reports whether t is an unsafe pointer.
 func (t *Type) IsUnsafePtr() bool {
-	return t.Etype == TUNSAFEPTR
+	return t.Etype == TUNSAFEPTR || (t.IsPtr() && t.Elem().IsVoid())
 }
 
 // IsPtrShaped reports whether t is represented by a single machine pointer.

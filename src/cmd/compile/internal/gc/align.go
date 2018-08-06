@@ -225,7 +225,10 @@ func dowidth(t *types.Type) {
 	w := int64(0)
 	switch et {
 	default:
-		Fatalf("dowidth: unknown type: %v", t)
+		Fatalf("dowidth: unknown type: %v %v", t, et)
+
+	case TVOID, TSSA:
+		w = 1 // blah blah
 
 	// compiler-specific stuff
 	case TINT8, TUINT8, TBOOL:

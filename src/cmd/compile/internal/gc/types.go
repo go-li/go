@@ -59,5 +59,8 @@ const (
 	// pseudo-types for import/export
 	TDDDFIELD = types.TDDDFIELD // wrapper: contained type is a ... field
 
+	TVOID = types.TVOID
+	TSSA = types.TSSA
+
 	NTYPE = types.NTYPE
 )

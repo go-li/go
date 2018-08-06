@@ -288,6 +288,10 @@ type (
 		Elem Expr
 		expr
 	}
+
+	VoidType struct {
+		expr
+	}
 )
 
 type expr struct{ node }

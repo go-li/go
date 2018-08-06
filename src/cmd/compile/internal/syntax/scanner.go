@@ -176,6 +176,7 @@ redo:
 			break
 		}
 		s.ungetr()
+		s.nlsemi = true
 		s.tok = _Star
 
 	case '/':

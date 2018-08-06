@@ -85,6 +85,7 @@ var _typekind = []string{
 	TFUNC:       "func",
 	TNIL:        "nil",
 	TIDEAL:      "untyped number",
+	TVOID:	     "void",
 }
 
 func typekind(t *types.Type) string {
@@ -460,6 +461,15 @@ func typecheck1(n *Node, top int) *Node {
 			return n
 		}
 		n.Left = nil
+		n.List.Set(nil)
+		n.Rlist.Set(nil)
+
+	case OTVOID:
+		ok |= Etype
+		n.Op = OTYPE
+		n.Type = types.TypeVoid
+		n.Left = nil
+		n.Etype = 0
 		n.List.Set(nil)
 		n.Rlist.Set(nil)
 
@@ -2575,9 +2585,9 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 					for _, tn := range rfs[i:] {
 						if assignop(tn.Type, tl.Type.Elem(), &why) == 0 {
 							if call != nil {
-								yyerror("cannot use %v as type %v in argument to %v%s", tn.Type, tl.Type.Elem(), call, why)
+								yyerror("CANNOT use %v as TYPE %v in argument to %v%s", tn.Type, tl.Type.Elem(), call, why)
 							} else {
-								yyerror("cannot use %v as type %v in %s%s", tn.Type, tl.Type.Elem(), desc(), why)
+								yyerror("CANNOT use %v as TYPE %v in %s%s", tn.Type, tl.Type.Elem(), desc(), why)
 							}
 						}
 					}
@@ -2590,9 +2600,9 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 				tn := rfs[i]
 				if assignop(tn.Type, tl.Type, &why) == 0 {
 					if call != nil {
-						yyerror("cannot use %v as type %v in argument to %v%s", tn.Type, tl.Type, call, why)
+						yyerror("CANNOT use %v as TYPE %v in argument to %v%s", tn.Type, tl.Type, call, why)
 					} else {
-						yyerror("cannot use %v as type %v in %s%s", tn.Type, tl.Type, desc(), why)
+						yyerror("CANNOT use %v as TYPE %v in %s%s", tn.Type, tl.Type, desc(), why)
 					}
 				}
 			}

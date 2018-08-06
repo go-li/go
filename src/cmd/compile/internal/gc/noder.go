@@ -587,7 +587,10 @@ func (p *noder) expr(expr syntax.Expr) *Node {
 		n := p.nod(expr, OTCHAN, p.typeExpr(expr.Elem), nil)
 		n.Etype = types.EType(p.chanDir(expr.Dir))
 		return n
-
+	case *syntax.VoidType:
+		p.lineno(expr)
+		n := p.nod(expr, OTVOID, nil, nil)
+		return n
 	case *syntax.TypeSwitchGuard:
 		n := p.nod(expr, OTYPESW, nil, p.expr(expr.X))
 		if expr.Lhs != nil {
