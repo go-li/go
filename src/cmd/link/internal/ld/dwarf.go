@@ -546,6 +546,11 @@ func newtype(ctxt *Link, gotype *sym.Symbol) *dwarf.DWDie {
 	case objabi.KindUnsafePointer:
 		die = newdie(ctxt, &dwtypes, dwarf.DW_ABRV_BARE_PTRTYPE, name, 0)
 
+	case 255:
+		// go go go
+		die = newdie(ctxt, &dwtypes, dwarf.DW_ABRV_TYPEDECL, name, 0)
+		newrefattr(die, dwarf.DW_AT_type, mustFind(ctxt, "<unspecified>"))
+
 	default:
 		Errorf(gotype, "dwarf: definition of unknown kind %d", kind)
 		die = newdie(ctxt, &dwtypes, dwarf.DW_ABRV_TYPEDECL, name, 0)

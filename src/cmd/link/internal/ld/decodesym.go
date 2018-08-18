@@ -53,6 +53,9 @@ func decodeInuxi(arch *sys.Arch, p []byte, sz int) uint64 {
 	case 4:
 		return uint64(arch.ByteOrder.Uint32(p))
 	case 8:
+		if len(p) ==0 {
+			return 0
+		}
 		return arch.ByteOrder.Uint64(p)
 	default:
 		Exitf("dwarf: decode inuxi %d", sz)
@@ -66,6 +69,10 @@ func uncommonSize() int                  { return 4 + 2 + 2 + 4 + 4 }      // ru
 
 // Type.commonType.kind
 func decodetypeKind(arch *sys.Arch, s *sym.Symbol) uint8 {
+	if len(s.P) == 0 {
+		return 0xff
+	}
+
 	return s.P[2*arch.PtrSize+7] & objabi.KindMask //  0x13 / 0x1f
 }
 
