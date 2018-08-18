@@ -359,6 +359,11 @@ func onebitwalktype1(t *types.Type, off int64, bv bvec) {
 		Fatalf("onebitwalktype1: invalid initial alignment, %v", t)
 	}
 
+	if t.IsVoid() {
+		// I HAVE NO IDEA WHAT IS LIVENESS
+		return
+	}
+
 	switch t.Etype {
 	case TINT8, TUINT8, TINT16, TUINT16,
 		TINT32, TUINT32, TINT64, TUINT64,

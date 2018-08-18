@@ -177,6 +177,9 @@ func algtype1(t *types.Type) (AlgKind, *types.Type) {
 		}
 
 		return ret, nil
+	case TVOID:
+		return ANOEQ, t
+
 	}
 
 	Fatalf("algtype1: unexpected type %v", t)

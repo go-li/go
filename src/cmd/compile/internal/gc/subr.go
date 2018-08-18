@@ -112,6 +112,10 @@ func sameline(a, b src.XPos) bool {
 	return p.Base() == q.Base() && p.Line() == q.Line()
 }
 
+func yycool(format string, args ...interface{}) {
+	fmt.Printf(format, args...)
+}
+
 func yyerrorl(pos src.XPos, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
 
@@ -942,6 +946,196 @@ func assignconv(n *Node, t *types.Type, context string) *Node {
 	return assignconvfn(n, t, func() string { return context })
 }
 
+func check_typeconflict(newt, oldt *types.Type,  vararg_eface_promotion bool) *types.Type {
+	if newt == nil {
+		return oldt
+	}
+	if oldt == nil {
+		return newt
+	}
+	if newt.IsUntyped() {
+		return oldt
+	}
+	if oldt.IsUntyped() {
+		return newt
+	}
+	if eqtype(newt, oldt) {
+		return oldt
+	}
+
+	var why string
+
+	if vararg_eface_promotion {
+		if oldt != nil && oldt.IsEmptyInterface() {
+			op := assignop(newt, oldt, &why)
+			if op != 0 {
+				return oldt
+			}
+		}
+	}
+	yycool("cannot resolve typeconflict newt= %v oldt = %v (%s)\n\n", newt, oldt, why)
+
+	return types.Errortype
+}
+
+func wildcard(a *types.Type, b *types.Type, saw map[*types.Sym]*types.Sym) *types.Type {
+	if a == b {
+		return nil
+	}
+	if saw == nil {
+		saw = make(map[*types.Sym]*types.Sym)
+	}
+	if b.IsPtr() {
+		if a.IsUntypedNil() {
+			var wc = wildcard(b, b, nil)
+			if wc != nil && wc.IsVoid() {
+				return a
+			}
+		}
+
+		if a.IsPtr() {
+			return wildcard(a.Elem(), b.Elem(), saw)
+		}
+		if a.IsUnsafePtr() {
+			return nil
+		}
+	}
+	if b.IsUnsafePtr() {
+		return nil
+	}
+	if b.IsVoid() {
+		return a
+	}
+	if b.IsBoolean() {
+		return nil
+	}
+	if b.IsInteger() {
+		return nil
+	}
+	if b.IsFloat() {
+		return nil
+	}
+	if b.IsComplex() {
+		return nil
+	}
+	if b.IsString() {
+		return nil
+	}
+	if b.IsEmptyInterface() {
+		return nil
+	}
+	if b.IsArray() {
+		if a.IsArray() && b.NumElem() == a.NumElem() {
+			return wildcard(a.Elem(), b.Elem(), saw)
+		}
+		return nil
+	}
+	if b.IsSlice() {
+		if a.IsUntypedNil() {
+			var wc = wildcard(b, b, nil)
+			if wc != nil && wc.IsVoid() {
+				return a
+			}
+		}
+
+		if a.IsSlice() {
+			return wildcard(a.Elem(), b.Elem(), saw)
+		}
+	}
+	if b.IsFunc() {
+		if a.IsUntypedNil() {
+			var wc = wildcard(b, b, nil)
+			if wc != nil && wc.IsVoid() {
+				return a
+			}
+		}
+
+		if a.IsFunc() {
+			x := wildcard(a.FuncType().Params, b.FuncType().Params, saw)
+			y := wildcard(a.FuncType().Results, b.FuncType().Results, saw)
+			return check_typeconflict(x, y, false)
+
+		}
+	}
+	if b.IsTuple() {
+		if a.IsTuple() && b.NumFields() == a.NumFields() {
+			var x, y *types.Type = nil, nil
+			for i := 0; i < a.NumFields(); i++ {
+				x = wildcard(a.FieldType(i), b.FieldType(i), saw)
+				y = check_typeconflict(y, x, false)
+			}
+			return y
+
+		}
+	}
+	if b.IsStruct() {
+		if a.IsStruct() && b.NumFields() == a.NumFields() {
+			var x, y *types.Type = nil, nil
+			for i := 0; i < a.NumFields(); i++ {
+				x = wildcard(a.FieldType(i), b.FieldType(i), saw)
+				y = check_typeconflict(y, x, false)
+			}
+			return y
+
+		}
+	}
+
+	if b.IsChan() {
+		if a.IsUntypedNil() {
+			var wc = wildcard(b, b, nil)
+			if wc != nil && wc.IsVoid() {
+				return a
+			}
+		}
+		if a.IsChan() {
+			return wildcard(a.Elem(), b.Elem(), saw)
+		}
+	}
+	if b.IsMap() {
+		if a.IsUntypedNil() {
+			var wc = wildcard(b, b, nil)
+			if wc != nil && wc.IsVoid() {
+				return a
+			}
+		}
+		if a.IsMap() {
+			var x *types.Type = nil
+			x = wildcard(a.MapType().Key, b.MapType().Key, saw)
+			if x != nil {
+				saw[nil] = nil
+			}
+			return check_typeconflict(wildcard(a.MapType().Val, b.MapType().Val, saw), x, false)
+		}
+	}
+	if b.IsInterface() {
+		if a.IsUntypedNil() {
+			var wc = wildcard(b, b, nil)
+			if wc != nil && wc.IsVoid() {
+				return a
+			}
+		}
+
+		if a.IsInterface() {
+			if a.AllMethods().Len() == b.AllMethods().Len() {
+			var x, y *types.Type = nil, nil
+			for i := 0; i < a.AllMethods().Len(); i++ {
+				aa := a.AllMethods().Index(i)
+				bb := b.AllMethods().Index(i)
+				x = wildcard(aa.Type, bb.Type, saw)
+				y = check_typeconflict(y, x, false)
+			}
+			return y
+			}
+			return types.Errortype
+		}
+	}
+
+	//yycool("cannot determine wildcard a= %v b = %v\n\n", a, b)
+
+
+	return nil
+}
+
 // Convert node n for assignment to type t.
 func assignconvfn(n *Node, t *types.Type, context func() string) *Node {
 	if n == nil || n.Type == nil || n.Type.Broke() {
@@ -973,15 +1167,23 @@ func assignconvfn(n *Node, t *types.Type, context func() string) *Node {
 		}
 	}
 
-	if eqtype(n.Type, t) {
+	// do subtyping check here
+	if !t.IsVoid() && !n.Type.IsVoid() {
+	var wc = wildcard(n.Type, t, nil)
+	if wc != nil && !wc.IsVoid() {
 		return n
 	}
+
+	if eqtype(n.Type, t) {
+		return n
+	}}
+
 
 	var why string
 	op := assignop(n.Type, t, &why)
 	if op == 0 {
 		if !old.Diag() {
-//			yyerror("cannot use %L as type %v in %s%s", n, t, context(), why)
+			yyerror("cannot use %L as type %v in %s%s", n, t, context(), why)
 		}
 		op = OCONV
 	}

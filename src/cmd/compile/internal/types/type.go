@@ -175,7 +175,7 @@ const (
 
 func (t *Type) NotInHeap() bool  { return t.flags&typeNotInHeap != 0 }
 func (t *Type) Broke() bool      { return t.flags&typeBroke != 0 }
-func (t *Type) Noalg() bool      { return t.flags&typeNoalg != 0 }
+func (t *Type) Noalg() bool      { return t.flags&typeNoalg != 0 || t.IsVoid() }
 func (t *Type) Deferwidth() bool { return t.flags&typeDeferwidth != 0 }
 func (t *Type) Recur() bool      { return t.flags&typeRecur != 0 }
 
@@ -1221,6 +1221,11 @@ func (t *Type) IsPtr() bool {
 	return t.Etype == TPTR32 || t.Etype == TPTR64
 }
 
+// IsUnsafePtr reports whether t is a func.
+func (t *Type) IsFunc() bool {
+	return t.Etype == TFUNC
+}
+
 // IsUnsafePtr reports whether t is an unsafe pointer.
 func (t *Type) IsUnsafePtr() bool {
 	return t.Etype == TUNSAFEPTR || (t.IsPtr() && t.Elem().IsVoid())
@@ -1350,7 +1355,7 @@ func (t *Type) IsMemory() bool {
 	return t == TypeMem || t.Etype == TTUPLE && t.Extra.(*Tuple).second == TypeMem
 }
 func (t *Type) IsFlags() bool { return t == TypeFlags }
-func (t *Type) IsVoid() bool  { return t == TypeVoid }
+func (t *Type) IsVoid() bool  { return t == TypeVoid || t.Etype == TVOID }
 func (t *Type) IsTuple() bool { return t.Etype == TTUPLE }
 
 // IsUntyped reports whether t is an untyped type.
@@ -1363,6 +1368,18 @@ func (t *Type) IsUntyped() bool {
 	}
 	switch t.Etype {
 	case TNIL, TIDEAL:
+		return true
+	}
+	return false
+}
+
+// IsUntyped reports whether t is an untyped nil type.
+func (t *Type) IsUntypedNil() bool {
+	if t == nil {
+		return false
+	}
+	switch t.Etype {
+	case TNIL:
 		return true
 	}
 	return false

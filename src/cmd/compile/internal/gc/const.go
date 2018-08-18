@@ -220,6 +220,17 @@ func convlit1(n *Node, t *types.Type, explicit bool, reuse canReuseNode) *Node {
 	if !explicit && !n.Type.IsUntyped() {
 		return n
 	}
+	var ct Ctype
+	var et types.EType
+	if t.IsVoid() {
+		goto bad
+	}
+
+	if n.Type.IsVoid() {
+		goto bad
+	}
+
+
 
 	if n.Op == OLITERAL && !reuse {
 		// Can't always set n.Type directly on OLITERAL nodes.
@@ -295,8 +306,8 @@ func convlit1(n *Node, t *types.Type, explicit bool, reuse canReuseNode) *Node {
 		return n
 	}
 
-	ct := consttype(n)
-	var et types.EType
+	ct = consttype(n)
+
 	if ct == 0 {
 		goto bad
 	}

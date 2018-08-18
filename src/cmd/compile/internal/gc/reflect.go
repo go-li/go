@@ -769,12 +769,17 @@ var kinds = []int{
 	TCOMPLEX64:  objabi.KindComplex64,
 	TCOMPLEX128: objabi.KindComplex128,
 	TUNSAFEPTR:  objabi.KindUnsafePointer,
+	TVOID:       objabi.KindStruct,
+
 }
 
 // typeptrdata returns the length in bytes of the prefix of t
 // containing pointer data. Anything after this offset is scalar data.
 func typeptrdata(t *types.Type) int64 {
 	if !types.Haspointers(t) {
+		return 0
+	}
+	if t.IsVoid() {
 		return 0
 	}
 
@@ -813,6 +818,8 @@ func typeptrdata(t *types.Type) int64 {
 			}
 		}
 		return lastPtrField.Offset + typeptrdata(lastPtrField.Type)
+	case TVOID:
+		return 0
 
 	default:
 		Fatalf("typeptrdata: unexpected type, %v", t)
@@ -1185,8 +1192,11 @@ func dtypesym(t *types.Type) *obj.LSym {
 	ot := 0
 	switch t.Etype {
 	default:
-		ot = dcommontype(lsym, ot, t)
-		ot = dextratype(lsym, ot, t, 0)
+		if !t.IsVoid() {
+
+			ot = dcommontype(lsym, ot, t)
+			ot = dextratype(lsym, ot, t, 0)
+		}
 
 	case TARRAY:
 		// ../../../../runtime/type.go:/arrayType
@@ -1482,6 +1492,13 @@ func itabsym(it *obj.LSym, offset int64) *obj.LSym {
 }
 
 func addsignat(t *types.Type) {
+	// we don't ever create signatures for any generic types
+
+	var wc = wildcard(t,t,nil)
+	if wc != nil && wc.IsVoid() {
+		return
+	}
+
 	signatset[t] = struct{}{}
 }
 
@@ -1508,6 +1525,11 @@ func dumpsignats() {
 		sort.Sort(typesByString(signats))
 		for _, ts := range signats {
 			t := ts.t
+
+			var wc = wildcard(t,t,nil)
+			if wc != nil && wc.IsVoid() {
+				continue
+			}
 			dtypesym(t)
 			if t.Sym != nil {
 				dtypesym(types.NewPtr(t))

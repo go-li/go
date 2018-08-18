@@ -1016,7 +1016,12 @@ func ssaGenValue(s *gc.SSAGenState, v *ssa.Value) {
 		gc.AddAux(&p.To, v)
 		p.To.Offset += 4
 	default:
-		v.Fatalf("genValue not implemented: %s", v.LongString())
+		fmt.Printf("genValue not implemented: %s", v.LongString())
+
+		p := s.Prog(x86.AMOVQ)
+		gc.AddrAuto(&p.From, v.Args[0])
+		p.To.Type = obj.TYPE_REG
+		p.To.Reg = v.Reg()
 	}
 }
 
