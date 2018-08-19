@@ -856,6 +856,8 @@ func (p *exporter) typ(t *types.Type) {
 		p.int(int(t.ChanDir()))
 		p.typ(t.Elem())
 
+	case TVOID, 36:
+		p.tag(voidTag)
 	default:
 		Fatalf("exporter: unexpected type: %v (Etype = %d)", t, t.Etype)
 	}
@@ -1890,6 +1892,9 @@ const (
 
 	// Type aliases
 	aliasTag
+
+	// Generics
+	voidTag
 )
 
 // Debugging support.
@@ -1928,6 +1933,9 @@ var tagString = [...]string{
 
 	// Type aliases
 	-aliasTag: "alias",
+
+	// Generics
+	-voidTag:  "void",
 }
 
 // untype returns the "pseudo" untyped type for a Ctype (import/export use only).

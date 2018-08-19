@@ -978,13 +978,30 @@ func check_typeconflict(newt, oldt *types.Type,  vararg_eface_promotion bool) *t
 	return types.Errortype
 }
 
-func wildcard(a *types.Type, b *types.Type, saw map[*types.Sym]*types.Sym) *types.Type {
+func wildcard(a *types.Type, b *types.Type, saw map[*types.Sym]*types.Type) *types.Type {
 	if a == b {
 		return nil
 	}
 	if saw == nil {
-		saw = make(map[*types.Sym]*types.Sym)
+		saw = make(map[*types.Sym]*types.Type)
 	}
+
+	if b.Sym != nil {
+		if a.Sym != nil {
+			if look, ok := saw[b.Sym]; ok {
+
+				if !eqtype(a, look) && assignop(a, b, nil) == 0 {
+					return types.Errortype
+				}
+
+				return nil
+			}
+
+			saw[b.Sym] = a
+//			return wildcard(a.Elem(), b.Elem(), saw)
+		}
+	}
+
 	if b.IsPtr() {
 		if a.IsUntypedNil() {
 			var wc = wildcard(b, b, nil)
@@ -1129,6 +1146,8 @@ func wildcard(a *types.Type, b *types.Type, saw map[*types.Sym]*types.Sym) *type
 			return types.Errortype
 		}
 	}
+
+
 
 	//yycool("cannot determine wildcard a= %v b = %v\n\n", a, b)
 

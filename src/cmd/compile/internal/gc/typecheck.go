@@ -256,6 +256,75 @@ func indexlit(n *Node) *Node {
 	return n
 }
 
+func inval(a, b *types.Type) *types.Type {
+	if a == types.Errortype {
+		return a
+	}
+	return b
+}
+
+
+func substitute(where, what *types.Type, saw map[*types.Sym]*types.Type) *types.Type {
+
+	if where.Sym != nil {
+		var look, ok = saw[where.Sym]
+
+		if !ok {
+			saw[where.Sym] = nil
+
+			val := substitute(where, what, saw)
+
+			if val == types.Errortype {
+				return val
+			}
+
+			if val == where {
+				return where
+			}
+
+		} else {
+			return look
+		}
+	}
+	if where.IsVoid() {
+		return what
+	}
+	if where.IsPtr() {
+		ptr := substitute(where.Elem(), what, saw)
+		if ptr == where.Elem() {
+			return where
+		}
+		return inval(ptr, types.NewPtr(ptr))
+	}
+	if where.IsUnsafePtr() {
+		return where
+	}
+	if where.IsBoolean() {
+		return where
+	}
+	if where.IsInteger() {
+		return where
+	}
+	if where.IsFloat() {
+		return where
+	}
+	if where.IsComplex() {
+		return where
+	}
+	if where.IsString() {
+		return where
+	}
+	if where.IsEmptyInterface() {
+		return where
+	}
+
+
+
+	yycool("cannot substitute wildcard where= %v what = %v\n\n", where, what)
+
+	return where
+}
+
 // The result of typecheck1 MUST be assigned back to n, e.g.
 // 	n.Left = typecheck1(n.Left, top)
 func typecheck1(n *Node, top int) *Node {
@@ -1266,7 +1335,9 @@ func typecheck1(n *Node, top int) *Node {
 			}
 		}
 
-		typecheckaste(OCALL, n.Left, n.Isddd(), t.Params(), n.List, func() string { return fmt.Sprintf("argument to %v", n.Left) })
+		var sawmap = make(map[*types.Sym]*types.Type)
+
+		var wildcard = typecheckaste(OCALL, n.Left, n.Isddd(), t.Params(), n.List, func() string { return fmt.Sprintf("argument to %v", n.Left)}, sawmap)
 		ok |= Etop
 		if t.NumResults() == 0 {
 			break
@@ -1274,6 +1345,12 @@ func typecheck1(n *Node, top int) *Node {
 		ok |= Erv
 		if t.NumResults() == 1 {
 			n.Type = l.Type.Results().Field(0).Type
+
+			if wildcard != nil {
+
+				n.Type = substitute(n.Type, wildcard, sawmap)
+
+			}
 
 			if n.Op == OCALLFUNC && n.Left.Op == ONAME && isRuntimePkg(n.Left.Sym.Pkg) && n.Left.Sym.Name == "getg" {
 				// Emit code for runtime.getg() directly instead of calling function.
@@ -1295,6 +1372,12 @@ func typecheck1(n *Node, top int) *Node {
 		}
 
 		n.Type = l.Type.Results()
+
+		if wildcard != nil {
+
+			n.Type = substitute(n.Type, wildcard, sawmap)
+
+		}
 
 	case OALIGNOF, OOFFSETOF, OSIZEOF:
 		ok |= Erv
@@ -2076,7 +2159,7 @@ func typecheck1(n *Node, top int) *Node {
 		if Curfn.Type.FuncType().Outnamed && n.List.Len() == 0 {
 			break
 		}
-		typecheckaste(ORETURN, nil, false, Curfn.Type.Results(), n.List, func() string { return "return argument" })
+		typecheckaste(ORETURN, nil, false, Curfn.Type.Results(), n.List, func() string { return "return argument" }, nil)
 
 	case ORETJMP:
 		ok |= Etop
@@ -2549,7 +2632,7 @@ func hasddd(t *types.Type) bool {
 }
 
 // typecheck assignment: type list = expression list
-func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes, desc func() string) {
+func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes, desc func() string, saw map[*types.Sym]*types.Type) (wc *types.Type) {
 	var t *types.Type
 	var n1 int
 	var n2 int
@@ -2580,9 +2663,11 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 			lfs := tstruct.FieldSlice()
 			rfs := n.Type.FieldSlice()
 			var why string
+
 			for i, tl := range lfs {
 				if tl.Isddd() {
 					for _, tn := range rfs[i:] {
+
 						if assignop(tn.Type, tl.Type.Elem(), &why) == 0 {
 							if call != nil {
 								yyerror("CANNOT use %v as TYPE %v in argument to %v%s", tn.Type, tl.Type.Elem(), call, why)
@@ -2598,6 +2683,7 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 					goto notenough
 				}
 				tn := rfs[i]
+
 				if assignop(tn.Type, tl.Type, &why) == 0 {
 					if call != nil {
 						yyerror("CANNOT use %v as TYPE %v in argument to %v%s", tn.Type, tl.Type, call, why)
@@ -2652,6 +2738,11 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 				n = nl.Index(i)
 				setlineno(n)
 				if n.Type != nil {
+
+					if saw != nil {
+						wc = check_typeconflict(wildcard(n.Type, t, saw), wc, false)
+					}
+
 					nl.SetIndex(i, assignconvfn(n, t, desc))
 				}
 				return
@@ -2661,6 +2752,12 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 				n = nl.Index(i)
 				setlineno(n)
 				if n.Type != nil {
+
+
+					if saw != nil {
+						wc = check_typeconflict(wildcard(n.Type, t.Elem(), saw), wc, true)
+					}
+
 					nl.SetIndex(i, assignconvfn(n, t.Elem(), desc))
 				}
 			}
@@ -2673,6 +2770,12 @@ func typecheckaste(op Op, call *Node, isddd bool, tstruct *types.Type, nl Nodes,
 		n = nl.Index(i)
 		setlineno(n)
 		if n.Type != nil {
+
+			if saw != nil {
+				wc = check_typeconflict(wildcard(n.Type, t, saw), wc, false)
+			}
+
+
 			nl.SetIndex(i, assignconvfn(n, t, desc))
 		}
 		i++
@@ -2718,6 +2821,7 @@ toomany:
 	} else {
 		yyerror("too many arguments to %v%s", op, details)
 	}
+	return
 }
 
 func errorDetails(nl Nodes, tstruct *types.Type, isddd bool) string {

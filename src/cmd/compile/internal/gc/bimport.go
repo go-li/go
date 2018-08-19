@@ -276,7 +276,7 @@ func (p *importer) pkg() *types.Pkg {
 
 	// otherwise, i is the package tag (< 0)
 	if i != packageTag {
-		p.formatErrorf("expected package tag, found tag = %d", i)
+		p.formatErrorf("expected package tag, found tag = %d (in %q)", i, p.imp.Path)
 	}
 
 	// read package data
@@ -613,6 +613,10 @@ func (p *importer) typ() *types.Type {
 		ct := t.ChanType()
 		ct.Dir = types.ChanDir(p.int())
 		ct.Elem = p.typ()
+
+	case voidTag:
+		t = p.newtyp(TVOID)
+
 
 	default:
 		p.formatErrorf("unexpected type (tag = %d)", i)
