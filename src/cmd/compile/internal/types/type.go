@@ -1150,7 +1150,11 @@ func (t *Type) cmp(x *Type) Cmp {
 		if t.ChanDir() != x.ChanDir() {
 			return cmpForNe(t.ChanDir() < x.ChanDir())
 		}
-
+	case TVOID:
+		if t.IsVoid() {
+			return CMPeq
+		}
+		return CMPlt
 	default:
 		e := fmt.Sprintf("Do not know how to compare %v with %v", t, x)
 		panic(e)
