@@ -320,7 +320,7 @@ func substitute(where, what *types.Type, saw map[*types.Sym]*types.Type) *types.
 
 
 
-	yycool("cannot substitute wildcard where= %v what = %v\n\n", where, what)
+	//yycool("cannot substitute wildcard where= %v what = %v\n\n", where, what)
 
 	return where
 }

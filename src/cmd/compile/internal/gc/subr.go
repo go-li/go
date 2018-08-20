@@ -1132,21 +1132,72 @@ func wildcard(a *types.Type, b *types.Type, saw map[*types.Sym]*types.Type) *typ
 			}
 		}
 
+		if a == nil {
+			return nil
+		}
+
 		if a.IsInterface() {
-			if a.AllMethods().Len() == b.AllMethods().Len() {
 			var x, y *types.Type = nil, nil
-			for i := 0; i < a.AllMethods().Len(); i++ {
-				aa := a.AllMethods().Index(i)
-				bb := b.AllMethods().Index(i)
-				x = wildcard(aa.Type, bb.Type, saw)
+		Outer:
+			for _, im := range b.Fields().Slice() {
+				for _, tm := range a.Fields().Slice() {
+					if tm.Sym == im.Sym {
+
+						x = wildcard(tm.Type, im.Type, saw)
+						y = check_typeconflict(y, x, false)
+
+
+						continue Outer
+					}
+				}
+
+				return types.Errortype
+			}
+
+			return y
+
+
+		} else {
+			t0 := a
+			a = methtype(a)
+			if a != nil {
+				expandmeth(a)
+			}
+			var x, y *types.Type = nil, nil
+			for _, im := range b.Fields().Slice() {
+
+
+				if im.Broke() {
+					continue
+				}
+
+				tm, followptr := ifacelookdot(im.Sym, a, false)
+				if tm == nil || tm.Nointerface() {
+
+
+					//yycool("no tm wildcard b = %v\n\n", im.Type)
+
+					return types.Errortype
+				}
+
+				rcvr := tm.Type.Recv().Type
+
+				if rcvr.IsPtr() && !t0.IsPtr() && !followptr && !isifacemethod(tm.Type) {
+
+					//yycool("no rcvr ptr wildcard a= %v b = %v\n\n", tm.Type, im.Type)
+
+					return types.Errortype
+				}
+
+
+
+				x = wildcard(tm.Type, im.Type, saw)
 				y = check_typeconflict(y, x, false)
+
 			}
 			return y
-			}
-			return types.Errortype
 		}
 	}
-
 
 
 	//yycool("cannot determine wildcard a= %v b = %v\n\n", a, b)
